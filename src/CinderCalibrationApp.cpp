@@ -4,9 +4,6 @@
 #include "cinder/Capture.h"
 
 #include "CinderOpenCV.h"
-#include "opencv2/core/core.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-#include "opencv2/calib3d/calib3d.hpp"
 
 #define BOARD_IMG_COUNT		10		// number of images to be used for camera callibration
 #define BOARD_CORNERS_X		8		// number of square intersections on the chessboard along x axis
@@ -32,6 +29,7 @@ class CinderCalibrationApp : public AppNative {
 	void keyDown( KeyEvent event );
 	void update();
 	void draw();
+	bool saveCameraParams( string path );
 	
 	CaptureRef				mCapture;
 	Surface					mCaptureSurf;
@@ -62,17 +60,17 @@ void CinderCalibrationApp::setup()
 {
 	mState = STATE_DETECT;
 	mImages = 0;
-	
-	int numSquares = BOARD_CORNERS_X * BOARD_CORNERS_Y;
-	for( int j = 0;j < numSquares; j++ ) {
-		obj.push_back( Point3f( j / BOARD_CORNERS_X, j % BOARD_CORNERS_Y, 0.0f ) );
-	}
 
 	try {
 		mCapture = Capture::create( CAPTURE_WIDTH, CAPTURE_HEIGHT );
 		mCapture->start();
 	} catch( ... ) {
 		console() << "Failed to initialize capture" << std::endl;
+	}
+	
+	int numSquares = BOARD_CORNERS_X * BOARD_CORNERS_Y;
+	for( int j = 0;j < numSquares; j++ ) {
+		obj.push_back( Point3f( j / BOARD_CORNERS_X, j % BOARD_CORNERS_X, 0.0f ) );
 	}
 }
 
@@ -84,6 +82,12 @@ void CinderCalibrationApp::keyDown( KeyEvent event )
 		// save the camera params yaml file
 	}
 }
+
+bool CinderCalibrationApp::saveCameraParams( string path )
+{
+	return true;
+}
+
 
 void CinderCalibrationApp::update()
 {
@@ -125,40 +129,17 @@ void CinderCalibrationApp::update()
 			intrinsic = Mat(3, 3, CV_32FC1);
 			vector<Mat> rvecs;
 			vector<Mat> tvecs;
-			intrinsic.ptr<float>(0)[0] = 1;
+			intrinsic.ptr<float>(0)[0] = CAPTURE_WIDTH / CAPTURE_HEIGHT;
 			intrinsic.ptr<float>(1)[1] = 1;
-			double rms = calibrateCamera( mObjectPoints, mImagePoints, mCaptureMat.size(), intrinsic, distCoeffs, rvecs, tvecs );
+			double avgError = calibrateCamera( mObjectPoints, mImagePoints, mCaptureMat.size(), intrinsic, distCoeffs, rvecs, tvecs );
 			
-			console() << "Re-projection error reported by calibrateCamera: " << rms << endl;
-			
+			console() << "re-projection error % from calibrateCamera(): " << avgError << endl;
 			mState = STATE_CALIBRATED;
-			
-//			// Check for projection errors
-//			vector<Point2f> imagePoints2;
-//			int i, totalPoints = 0;
-//			double totalErr = 0, err;
-//			vector<float> perViewErrors;
-//			perViewErrors.resize( mObjectPoints.size() );
-//
-//			for( i = 0; i < (int)mObjectPoints.size(); ++i ) {
-//			
-//				projectPoints( Mat( mObjectPoints[i] ), rvecs[i], tvecs[i], intrinsic, distCoeffs, imagePoints2 );
-//				err = norm( Mat( mImagePoints[i] ), Mat( imagePoints2 ), CV_L2 );
-//
-//				int n = (int)mObjectPoints[i].size();
-//				perViewErrors[i] = (float) std::sqrt( err * err /n );
-//				totalErr        += err * err;
-//				totalPoints     += n;
-//			}
-//
-//			console() << "Calibration Error = " << sqrt( totalErr / totalPoints ) << "%" << endl;;
 		}
 		
 		if ( mState == STATE_CALIBRATED ) {
 			undistort( mCaptureMat, mUndistortedMat, intrinsic, distCoeffs );
 		}
-		
-		// save camera params to YAML file for future use
 	}
 }
 
@@ -167,7 +148,6 @@ void CinderCalibrationApp::draw()
 	gl::clear( Color( 0, 0, 0 ) );
 	
 	if ( mCaptureTex ){
-	
 		if ( mState == STATE_CALIBRATED ) {
 			gl::draw( fromOcv( mUndistortedMat ) );
 		} else {
